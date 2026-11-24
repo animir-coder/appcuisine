@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2f7d4f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Cuisine">
+  <title>Cuisine du foyer</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <button id="back" class="ico" aria-label="Retour" hidden>‹</button>
+    <h1 id="title">Cuisine</h1>
+    <span id="sync" class="sync" hidden></span>
+    <a class="ico" href="#reglages" aria-label="Réglages">⚙</a>
+  </header>
+  <main id="view"></main>
+  <div id="toast" role="status" hidden></div>
+  <nav>
+    <a href="#recettes" data-tab="recettes"><span>📖</span>Recettes</a>
+    <a href="#courses" data-tab="courses"><span>🛒</span>Courses<i id="b-courses"></i></a>
+    <a href="#stock" data-tab="stock"><span>🧊</span>Stock<i id="b-stock"></i></a>
+    <a href="#idees" data-tab="idees"><span>💡</span>Idées</a>
+  </nav>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
