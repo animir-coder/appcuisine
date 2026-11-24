@@ -29,7 +29,7 @@ create table if not exists public.entries (
 );
 create index if not exists entries_sync_idx on public.entries (household_id, updated_at);
 
-create or replace function public.touch_entry() returns trigger language plpgsql as $$
+create or replace function public.touch_entry() returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at := clock_timestamp(); new.updated_by := auth.uid(); return new; end $$;
 drop trigger if exists entries_touch on public.entries;
 create trigger entries_touch before insert or update on public.entries for each row execute function public.touch_entry();
@@ -78,7 +78,8 @@ begin
   return h;
 end $$;
 
-grant execute on function public.create_household(text), public.join_household(text) to authenticated;
+revoke execute on function public.create_household(text), public.join_household(text), public.is_member(uuid) from anon, public;
+grant execute on function public.create_household(text), public.join_household(text), public.is_member(uuid) to authenticated;
 
 -- Temps réel : les changements arrivent instantanément sur les autres téléphones
 do $$ begin
