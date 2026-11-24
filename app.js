@@ -363,12 +363,13 @@ function vSettings(st) {
 function vHousehold() {
   const s = Y.status, err = s.error ? `<p class="errmsg">${esc(s.error)}</p>` : '';
   if (!s.configured) return `<p class="hint">Synchro non configurée : les données restent sur ce téléphone (voir README, étape Supabase).</p>`;
-  if (!s.user) return s.step === 'code' ? `
-      <p class="hint">Code envoyé à ${esc(s.email)}. Il est valable 1 heure.</p>
-      <form id="f-code" class="addbar"><input name="n" inputmode="numeric" autocomplete="one-time-code" placeholder="Code reçu" required><button class="btn primary">OK</button></form>
-      <button class="btn" data-a="sync-back">Changer d’e-mail</button>${err}` : `
-      <p class="hint">Connecte-toi pour partager recettes, stock et liste avec le foyer.</p>
-      <form id="f-email" class="addbar"><input name="n" type="email" autocomplete="email" placeholder="ton@email.fr" required><button class="btn primary">→</button></form>${err}`;
+  if (!s.user) return `
+      <p class="hint">Connecte-toi pour partager recettes, stock et liste avec le foyer. Chaque membre a son propre compte.</p>
+      <form id="f-auth" class="form">
+        <input name="email" type="email" autocomplete="email" placeholder="ton@email.fr" value="${esc(s.email)}" required>
+        <input name="pw" type="password" autocomplete="current-password" placeholder="Mot de passe (6 caractères min.)" minlength="6" required>
+        <div class="actions"><button class="btn primary" value="in">Se connecter</button><button class="btn" value="up">Créer mon compte</button></div>
+      </form>${err}`;
   if (!s.household) return `
       <p class="hint">Connecté : ${esc(s.user.email)}</p>
       <form id="f-join" class="addbar"><input name="n" placeholder="Code d’invitation" autocapitalize="characters" required><button class="btn primary">Rejoindre</button></form>
@@ -444,7 +445,6 @@ const actions = {
   }),
   'stock-del': ({ id }) => { const snap = S.snapshot(); S.update(st => { st.stock = st.stock.filter(x => x.id !== id); }); openStock = null; toast('Retiré du stock', () => S.restore(snap)); },
   'stock-to-list': ({ id }) => { S.update(st => { const s = st.stock.find(x => x.id === id); addToShopping(st, s.name, s.aisle); }); toast('Ajouté à la liste'); },
-  'sync-back': () => { Y.status.step = 'email'; render(); },
   'sync-signout': () => Y.signOut(),
   'sync-leave': () => Y.leaveHousehold(),
   'sync-share': () => {
@@ -480,7 +480,13 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('submit', e => {
   const f = e.target, name = f.n?.value.trim();
-  const syncForms = { 'f-email': Y.sendCode, 'f-code': Y.verifyCode, 'f-create': Y.createHousehold, 'f-join': Y.joinHousehold };
+  if (f.id === 'f-auth') {
+    e.preventDefault();
+    const fn = e.submitter?.value === 'up' ? Y.signUp : Y.signIn;
+    f.querySelectorAll('button').forEach(b => b.disabled = true);
+    fn(f.email.value, f.pw.value).finally(render); return;
+  }
+  const syncForms = { 'f-create': Y.createHousehold, 'f-join': Y.joinHousehold };
   if (syncForms[f.id]) { e.preventDefault(); f.querySelector('button').disabled = true; syncForms[f.id](name || '').finally(render); return; }
   if (!['f-shop', 'f-stock', 'f-rec'].includes(f.id)) return;
   e.preventDefault(); if (!name) return;

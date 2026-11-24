@@ -1,4 +1,4 @@
-// Synchro foyer via Supabase : connexion par code reçu par e-mail, foyer partagé,
+// Synchro foyer via Supabase : connexion e-mail + mot de passe, foyer partagé,
 // envoi des modifs en file d'attente, réception en temps réel. Tout reste utilisable hors ligne.
 import * as S from './store.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 const HH = 'cuisine.household';
 export const status = {
   configured: !!(SUPABASE_URL && SUPABASE_ANON_KEY),
-  user: null, household: null, step: 'email', email: '',
+  user: null, household: null, email: '',
   online: navigator.onLine, syncing: false, error: '', members: 0,
 };
 try { status.household = JSON.parse(localStorage.getItem(HH) || 'null'); } catch {}
@@ -42,17 +42,26 @@ export async function init() {
 }
 
 // ---------- connexion ----------
-export async function sendCode(email) {
+const AUTH_ERR = {
+  'Invalid login credentials': 'E-mail ou mot de passe incorrect',
+  'User already registered': 'Ce compte existe déjà : utilise « Se connecter »',
+  'Email not confirmed': 'E-mail non confirmé : désactive « Confirm email » dans Supabase (voir README)',
+};
+const authFail = e => fail(Object.entries(AUTH_ERR).find(([k]) => e.message?.includes(k))?.[1] || e);
+export async function signIn(email, password) {
   status.error = ''; status.email = email.trim();
-  const { error } = await sb.auth.signInWithOtp({ email: status.email, options: { shouldCreateUser: true } });
-  if (error) return fail(error);
-  status.step = 'code'; emit();
+  const { data, error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) return authFail(error);
+  status.user = data.user; emit();
+  await refreshHousehold();
 }
-export async function verifyCode(code) {
-  status.error = '';
-  const { data, error } = await sb.auth.verifyOtp({ email: status.email, token: code.trim(), type: 'email' });
-  if (error) return fail('Code invalide ou expiré');
-  status.user = data.user; status.step = 'email'; emit();
+export async function signUp(email, password) {
+  status.error = ''; status.email = email.trim();
+  if (password.length < 6) return fail('Mot de passe : 6 caractères minimum');
+  const { data, error } = await sb.auth.signUp({ email: email.trim(), password });
+  if (error) return authFail(error);
+  if (!data.session) return fail('Compte créé, mais Supabase demande une confirmation par e-mail : désactive « Confirm email » (voir README)');
+  status.user = data.user; emit();
   await refreshHousehold();
 }
 export async function signOut() {

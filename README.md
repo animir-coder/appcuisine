@@ -30,9 +30,9 @@ Local d'abord : tout marche hors ligne, les modifs partent dès que le réseau r
 **Mise en place (une fois)**
 1. supabase.com > New project (région Europe).
 2. SQL Editor > New query > coller `supabase/schema.sql` > Run.
-3. Authentication > Email Templates > « Magic Link » : ajouter `Ton code : {{ .Token }}` dans le corps (l'app se connecte par code, pour fonctionner même installée sur l'écran d'accueil).
+3. Authentication > Sign In / Providers > Email : désactiver **Confirm email** (connexion e-mail + mot de passe immédiate, sans e-mail à recevoir).
 4. Project Settings > API : copier l'URL et la clé `anon` dans `config.js`.
-5. Dans l'app : Réglages > Partage du foyer > e-mail > code > « Créer » (le 1er téléphone envoie ses données). Les autres : « Rejoindre » avec le code d'invitation.
+5. Dans l'app : Réglages > Partage du foyer > e-mail + mot de passe > « Créer mon compte » > « Créer » (le 1er téléphone envoie ses données). Les autres : « Rejoindre » avec le code d'invitation.
 
 | Fichier | Rôle |
 |---|---|
