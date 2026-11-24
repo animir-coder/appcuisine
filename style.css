@@ -100,3 +100,12 @@ h3 small { display: inline; margin-left: 4px; }
 @keyframes pulse { to { opacity: .3; } }
 .errmsg { color: var(--bad); text-align: center; }
 .code { font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: .15em; }
+.portions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+.portions b { font-size: 22px; min-width: 28px; text-align: center; }
+.portions .ico { border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 24px; }
+.portions small { width: 100%; }
+.import { background: var(--pri-soft); border-radius: var(--r); padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.import .addbar { margin: 4px 0 0; } .import .addbar .btn { width: auto; font-size: 16px; padding: 0 14px; }
+.catchips { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px 10px; padding: 0 16px; scrollbar-width: none; }
+.chip { flex: none; min-height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid var(--line); background: var(--card); font-size: 15px; cursor: pointer; }
+.chip.on { background: var(--pri); color: var(--pri-ink); border-color: var(--pri); }

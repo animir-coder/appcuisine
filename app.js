@@ -1,5 +1,7 @@
 import * as S from './store.js';
 import * as Y from './sync.js';
+import { CATALOG, CATEGORIES, parseIngredient } from './catalog.js';
+import { importFromUrl } from './importer.js';
 import { AISLES, FRESH_DAYS, LOCS, LEVELS, LEVEL_LABEL, UNITS, guessAisle, DEMO, DEMO_STOCK, DEMO_RECURRENTS } from './data.js';
 
 const $ = s => document.querySelector(s);
@@ -13,6 +15,26 @@ let review = null;          // candidats de l'écran de vérification
 let stockFilter = 'tous';
 let openStock = null;       // ligne de stock dépliée
 let recipeQuery = '';
+let catQuery = '', catCat = '', catOpen = null, importing = false;
+
+// ---------- taille du foyer et portions ----------
+const HH_SIZE = 'cuisine.foyer';
+function hhSize() { try { return +localStorage.getItem(HH_SIZE) || 2; } catch { return 2; } }
+function setHhSize(n) { try { localStorage.setItem(HH_SIZE, String(n)); } catch {} }
+const people = r => r.people || hhSize();
+const factor = r => r.servings ? people(r) / r.servings : 1;
+function scaleQty(q, f, unit) {
+  const n = parseFloat(String(q).replace(',', '.'));
+  if (!q || isNaN(n) || f === 1) return q;
+  let v = n * f;
+  if (['g', 'ml'].includes(unit) && v >= 20) v = Math.round(v / 5) * 5;
+  else if (!unit || ['pièce', 'tranche', 'gousse', 'boîte', 'sachet', 'botte'].includes(unit)) v = Math.max(1, Math.round(v * 2) / 2);
+  else if (['c. à s.', 'c. à c.', 'pincée', 'verre', 'pot'].includes(unit)) v = Math.max(unit === 'pincée' ? 1 : 0.5, Math.round(v * 2) / 2);
+  else if (['cl', 'g', 'ml'].includes(unit) && v >= 5) v = Math.round(v);
+  else v = Math.round(v * 10) / 10;
+  return String(v).replace('.', ',');
+}
+const qtyOf = (r, i) => scaleQty(i.qty, factor(r), i.unit);
 
 // ---------- helpers métier ----------
 const key = S.norm;
@@ -91,18 +113,18 @@ function parse() {
 window.addEventListener('hashchange', () => { parse(); if (route.name !== 'revue') review = null; render(); window.scrollTo(0, 0); });
 
 // ---------- rendu ----------
-const TITLES = { recettes: 'Recettes', recette: 'Recette', edit: 'Recette', courses: 'Courses', revue: 'Vérifier la liste', stock: 'Stock', idees: 'Que cuisiner ?', reglages: 'Réglages' };
+const TITLES = { recettes: 'Recettes', recette: 'Recette', edit: 'Recette', courses: 'Courses', revue: 'Vérifier la liste', stock: 'Stock', idees: 'Que cuisiner ?', reglages: 'Réglages', catalogue: 'Catalogue' };
 function render() {
   const st = S.get();
   // garder la saisie en cours si l'écran se redessine (ex. modif reçue d'un autre téléphone)
   const ae = document.activeElement, keep = ae && view.contains(ae) && ae.matches('input') ? { sel: ae.form?.id ? `#${ae.form.id} [name=${ae.name}]` : ae.dataset.input ? `[data-input=${ae.dataset.input}]` : null, v: ae.value } : null;
   $('#title').textContent = TITLES[route.name] || 'Cuisine';
-  $('#back').hidden = !['recette', 'edit', 'revue', 'reglages'].includes(route.name);
-  const tab = { recette: 'recettes', edit: 'recettes', revue: 'courses', reglages: '' }[route.name] ?? route.name;
+  $('#back').hidden = !['recette', 'edit', 'revue', 'reglages', 'catalogue'].includes(route.name);
+  const tab = { recette: 'recettes', edit: 'recettes', catalogue: 'recettes', revue: 'courses', reglages: '' }[route.name] ?? route.name;
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   const nShop = st.shopping.filter(i => !i.checked).length, nExp = expiring(st).length;
   $('#b-courses').textContent = nShop || ''; $('#b-stock').textContent = nExp || '';
-  const fn = { recettes: vRecipes, recette: vRecipe, edit: vEdit, courses: vShopping, revue: vReview, stock: vStock, idees: vIdeas, reglages: vSettings }[route.name] || vRecipes;
+  const fn = { recettes: vRecipes, recette: vRecipe, edit: vEdit, courses: vShopping, revue: vReview, stock: vStock, idees: vIdeas, reglages: vSettings, catalogue: vCatalog }[route.name] || vRecipes;
   view.innerHTML = fn(st);
   if (route.name === 'edit') initEdit();
   if (keep?.sel) { const i = view.querySelector(keep.sel); if (i) { i.value = keep.v; i.focus(); } }
@@ -124,11 +146,12 @@ const dot = s => `<span class="dot ${s}" title="${{ ok: 'En stock', low: 'Presqu
 
 // Recettes ------------------------------------------------------------
 function vRecipes(st) {
-  if (!st.recipes.length) return empty('Aucune recette pour l’instant.', `<button class="btn primary" data-a="new-recipe">+ Ajouter une recette</button><button class="btn" data-a="demo">Charger des exemples</button>`);
+  if (!st.recipes.length) return empty('Aucune recette pour l’instant.', `<a class="btn primary" href="#catalogue">Choisir dans le catalogue</a><button class="btn" data-a="new-recipe">+ Saisir une recette</button>`);
   const q = key(recipeQuery);
   const list = st.recipes.filter(r => !q || key(r.title).includes(q)).sort((a, b) => (b.selected - a.selected) || a.title.localeCompare(b.title));
   const nSel = st.recipes.filter(r => r.selected).length;
   return `
+    <a class="btn wide" href="#catalogue">📚 Catalogue et recherche en ligne</a>
     ${st.recipes.length > 6 ? `<input class="search" type="search" placeholder="Chercher une recette" value="${esc(recipeQuery)}" data-input="rq">` : ''}
     <ul class="list">${list.map(r => {
       const miss = missingFor(st, r).length;
@@ -149,14 +172,19 @@ function vRecipe(st) {
   const miss = missingFor(st, r);
   return `
     <h2>${esc(r.title)}</h2>
-    <p class="muted">${r.servings || '?'} portions${r.cooked ? ` · cuisinée ${r.cooked}×` : ''}</p>
+    <div class="portions"><span>Pour</span>
+      <button class="ico" data-a="people" data-id="${r.id}" data-d="-1" aria-label="Moins">−</button>
+      <b>${people(r)}</b>
+      <button class="ico" data-a="people" data-id="${r.id}" data-d="1" aria-label="Plus">+</button>
+      <span>personne${people(r) > 1 ? 's' : ''}</span>${r.cooked ? `<small>cuisinée ${r.cooked}×</small>` : ''}</div>
     <div class="actions">
       <button class="btn ${r.selected ? '' : 'primary'}" data-a="toggle-sel" data-id="${r.id}">${r.selected ? '✓ Sélectionnée' : 'Sélectionner'}</button>
       <button class="btn primary" data-a="cook" data-id="${r.id}">J’ai cuisiné</button>
     </div>
     <h3>Ingrédients</h3>
-    <ul class="ing">${r.ingredients.map(i => `<li>${dot(stockStatus(st, i.name))}<span class="grow">${esc(i.name)}</span><span class="muted">${esc([i.qty, i.unit].filter(Boolean).join(' '))}</span></li>`).join('')}</ul>
+    <ul class="ing">${r.ingredients.map(i => `<li>${dot(stockStatus(st, i.name))}<span class="grow">${esc(i.name)}</span><span class="muted">${esc([qtyOf(r, i), i.unit].filter(Boolean).join(' '))}</span></li>`).join('')}</ul>
     ${miss.length ? `<button class="btn" data-a="add-missing" data-id="${r.id}">Ajouter les ${miss.length} manquant${miss.length > 1 ? 's' : ''} à la liste</button>` : ''}
+    ${r.source ? `<p class="hint"><a href="${esc(r.source)}" target="_blank" rel="noopener">Recette d’origine ↗</a></p>` : ''}
     ${r.steps.length ? `<h3>Étapes</h3><ol class="steps">${r.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
     <div class="actions end">
       <a class="btn" href="#edit/${r.id}">Modifier</a>
@@ -180,7 +208,7 @@ function vEdit(st) {
   return `
     <form id="f-recipe" class="form">
       <label>Titre<input name="title" required value="${esc(r.title)}" placeholder="Ex. Gratin dauphinois"></label>
-      <label>Portions<input name="servings" type="number" min="1" inputmode="numeric" value="${esc(r.servings)}"></label>
+      <label>Portions de la recette d’origine<input name="servings" type="number" min="1" inputmode="numeric" value="${esc(r.servings)}"></label>
       <fieldset><legend>Ingrédients <small>(le rayon se devine tout seul)</small></legend>
         <div id="ings">${rows.map(ingRow).join('')}</div>
         <button type="button" class="btn" data-a="add-ing">+ Ingrédient</button>
@@ -217,7 +245,7 @@ function initEdit() {
     let id = route.id;
     S.update(st => {
       ingredients.forEach(i => learn(st, i.name, { aisle: i.aisle }));
-      if (id === 'new') { id = S.uid(); st.recipes.push({ id, selected: false, cooked: 0, ...data }); }
+      if (id === 'new') { id = S.uid(); st.recipes.push({ id, selected: false, cooked: 0, people: hhSize(), ...data }); }
       else Object.assign(st.recipes.find(x => x.id === id), data);
     });
     go('recette/' + id);
@@ -240,7 +268,7 @@ function buildReview() {
     if (qty) c.qtys.push({ q: qty, u: unit || '' });
     if (!c.reasons.includes(reason)) c.reasons.push(reason);
   };
-  st.recipes.filter(r => r.selected).forEach(r => r.ingredients.forEach(i => add(i.name, i.aisle, i.qty, i.unit, r.title)));
+  st.recipes.filter(r => r.selected).forEach(r => r.ingredients.forEach(i => add(i.name, i.aisle, qtyOf(r, i), i.unit, `${r.title} (${people(r)} p.)`)));
   st.recurrents.forEach(r => add(r.name, r.aisle, null, null, 'Récurrent'));
   st.stock.filter(s => s.level === 'presque').forEach(s => add(s.name, s.aisle, null, null, 'Presque fini'));
   review = [...map.values()].sort((a, b) => AISLES.indexOf(a.aisle) - AISLES.indexOf(b.aisle) || a.name.localeCompare(b.name));
@@ -324,7 +352,8 @@ function vStock(st) {
 
 // Idées -------------------------------------------------------------------------
 function vIdeas(st) {
-  if (!st.recipes.length) return empty('Ajoute des recettes pour voir ce que tu peux cuisiner.');
+  const help = `<p class="hint">Ce que tu peux cuisiner avec ton stock actuel. Les recettes qui utilisent un produit qui périme bientôt sont en tête.</p>`;
+  if (!st.recipes.length) return help + empty('Ajoute des recettes pour voir ce que tu peux cuisiner.', '<a class="btn primary" href="#catalogue">Choisir dans le catalogue</a>');
   const scored = st.recipes.map(r => ({ r, miss: missingFor(st, r) }));
   const exp = new Set(expiring(st).map(s => key(s.name)));
   const card = ({ r, miss }) => `<li class="card">
@@ -338,12 +367,14 @@ function vIdeas(st) {
   const ok = scored.filter(x => !x.miss.length), m1 = scored.filter(x => x.miss.length === 1), m2 = scored.filter(x => x.miss.length === 2);
   const hasExp = x => x.r.ingredients.some(i => exp.has(key(i.name)));
   [ok, m1, m2].forEach(a => a.sort((x, y) => hasExp(y) - hasExp(x)));
-  return (sec('Faisables maintenant', ok) + sec('Il manque 1 ingrédient', m1) + sec('Il manque 2 ingrédients', m2)) || empty('Aucune recette à moins de 3 ingrédients manquants.');
+  return help + ((sec('Faisables maintenant', ok) + sec('Il manque 1 ingrédient', m1) + sec('Il manque 2 ingrédients', m2)) || empty('Aucune recette à moins de 3 ingrédients manquants.'));
 }
 
 // Réglages -------------------------------------------------------------------------
 function vSettings(st) {
   return `
+    <h3>Taille du foyer</h3>
+    <div class="portions"><button class="ico" data-a="hh-size" data-d="-1" aria-label="Moins">−</button><b>${hhSize()}</b><button class="ico" data-a="hh-size" data-d="1" aria-label="Plus">+</button><span>personne${hhSize() > 1 ? 's' : ''} par défaut pour les recettes</span></div>
     <h3>Produits récurrents</h3>
     <p class="hint">Proposés à chaque génération de liste s’ils ne sont pas en stock.</p>
     <form id="f-rec" class="addbar"><input name="n" placeholder="Ex. lait" list="dl-names" autocomplete="off"><button class="btn primary">+</button></form>
@@ -388,9 +419,54 @@ function vHousehold() {
     <div class="actions"><button class="btn" data-a="sync-signout">Se déconnecter (${esc(s.user.email)})</button><button class="btn danger" data-a="sync-leave">Quitter le foyer</button></div>${err}`;
 }
 
+// Catalogue ----------------------------------------------------------------------
+function vCatalog(st) {
+  const q = key(catQuery), have = new Set(st.recipes.map(r => key(r.title)));
+  const list = CATALOG.filter(c => (!catCat || c.c === catCat) && (!q || key(c.t).includes(q) || key(c.i).includes(q)));
+  return `
+    <form id="f-url" class="import">
+      <b>Recette trouvée sur Internet ?</b>
+      <small>Colle son lien (Marmiton, 750g, CuisineAZ…) ou partage-la vers l’app.</small>
+      <div class="addbar"><input name="n" type="url" inputmode="url" placeholder="https://…" autocomplete="off"><button class="btn primary" ${importing ? 'disabled' : ''}>${importing ? '…' : 'Importer'}</button></div>
+    </form>
+    <input class="search" type="search" placeholder="Chercher : poulet, courgette, gratin…" value="${esc(catQuery)}" data-input="cq">
+    ${catQuery.trim() ? `<a class="btn wide" href="https://www.marmiton.org/recettes/recherche.aspx?aqt=${encodeURIComponent(catQuery.trim())}" target="_blank" rel="noopener">Chercher « ${esc(catQuery.trim())} » sur Marmiton ↗</a>` : ''}
+    <div class="catchips">${['', ...CATEGORIES].map(c => `<button class="chip ${catCat === c ? 'on' : ''}" data-a="cat-filter" data-c="${esc(c)}">${c || 'Toutes'}</button>`).join('')}</div>
+    <ul class="list">${list.map(c => {
+      const idx = CATALOG.indexOf(c), added = have.has(key(c.t));
+      return `<li class="row">
+        <span class="grow" data-a="cat-open" data-i="${idx}"><b>${esc(c.t)}</b><small>${c.c} · ${c.m} min · ${c.i.split(';').length} ingr.</small></span>
+        <button class="btn ${added ? '' : 'primary'}" data-a="cat-add" data-i="${idx}" ${added ? 'disabled' : ''}>${added ? '✓' : '+'}</button>
+      </li>${catOpen === idx ? `<li class="drawer"><small>Pour 2 : ${esc(c.i.split(';').map(x => x.trim()).join(', '))}</small></li>` : ''}`;
+    }).join('') || '<li class="hint">Rien dans le catalogue : essaie sur Marmiton ci-dessus.</li>'}</ul>`;
+}
+function addRecipe(st, rec) {
+  const id = S.uid();
+  rec.ingredients.forEach(i => { i.aisle = i.aisle || aisleOf(i.name); learn(st, i.name, { aisle: i.aisle }); });
+  st.recipes.push({ id, selected: false, cooked: 0, people: hhSize(), ...rec });
+  return id;
+}
+async function doImport(url) {
+  importing = true; render();
+  try {
+    const rec = await importFromUrl(url);
+    let id; S.update(st => { id = addRecipe(st, rec); });
+    importing = false; go('recette/' + id); toast('Recette importée : vérifie les ingrédients');
+  } catch (e) { importing = false; render(); toast(e.message || 'Import impossible'); }
+}
+
 // ---------- actions ----------
 const actions = {
   'new-recipe': () => go('edit/new'),
+  'people': ({ id, d }) => S.update(st => { const r = st.recipes.find(x => x.id === id); r.people = Math.max(1, Math.min(20, people(r) + +d)); }),
+  'hh-size': ({ d }) => { setHhSize(Math.max(1, Math.min(12, hhSize() + +d))); render(); },
+  'cat-filter': ({ c }) => { catCat = c; render(); },
+  'cat-open': ({ i }) => { catOpen = catOpen === +i ? null : +i; render(); },
+  'cat-add': ({ i }) => {
+    const c = CATALOG[+i];
+    S.update(st => addRecipe(st, { title: c.t, servings: c.p, ingredients: c.i.split(';').map(parseIngredient), steps: c.s.split('|') }));
+    toast(`« ${c.t} » ajoutée à tes recettes`);
+  },
   'toggle-sel': ({ id }) => S.update(st => { const r = st.recipes.find(x => x.id === id); r.selected = !r.selected; }),
   'build-review': () => { review = null; go('revue'); },
   'del-recipe': ({ id }) => { const snap = S.snapshot(); S.update(st => { st.recipes = st.recipes.filter(x => x.id !== id); }); go('recettes'); toast('Recette supprimée', () => S.restore(snap)); },
@@ -412,7 +488,7 @@ const actions = {
   },
   'add-missing': ({ id }) => {
     let n = 0;
-    S.update(st => { const r = st.recipes.find(x => x.id === id); missingFor(st, r).forEach(i => { if (addToShopping(st, i.name, i.aisle, [i.qty, i.unit].filter(Boolean).join(' '), r.title)) n++; }); });
+    S.update(st => { const r = st.recipes.find(x => x.id === id); missingFor(st, r).forEach(i => { if (addToShopping(st, i.name, i.aisle, [qtyOf(r, i), i.unit].filter(Boolean).join(' '), r.title)) n++; }); });
     toast(n ? `${n} article${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''} à la liste` : 'Déjà sur la liste');
   },
   'rv-toggle': ({ k }) => { const c = review.find(x => x.k === k); c.on = !c.on; render(); },
@@ -467,10 +543,11 @@ document.addEventListener('click', e => {
   e.preventDefault(); fn(el.dataset, el);
 });
 document.addEventListener('input', e => {
-  if (e.target.dataset.input === 'rq') {
-    recipeQuery = e.target.value;
+  const inp = e.target.dataset.input;
+  if (inp === 'rq' || inp === 'cq') {
+    if (inp === 'rq') recipeQuery = e.target.value; else catQuery = e.target.value;
     const pos = e.target.selectionStart; render();
-    const i = $('[data-input=rq]'); i.focus(); i.setSelectionRange(pos, pos);
+    const i = $(`[data-input=${inp}]`); i.focus(); i.setSelectionRange(pos, pos);
   }
 });
 document.addEventListener('change', e => {
@@ -487,6 +564,7 @@ document.addEventListener('submit', e => {
     fn(f.email.value, f.pw.value).finally(render); return;
   }
   const syncForms = { 'f-create': Y.createHousehold, 'f-join': Y.joinHousehold };
+  if (f.id === 'f-url') { e.preventDefault(); if (name) doImport(name); return; }
   if (syncForms[f.id]) { e.preventDefault(); f.querySelector('button').disabled = true; syncForms[f.id](name || '').finally(render); return; }
   if (!['f-shop', 'f-stock', 'f-rec'].includes(f.id)) return;
   e.preventDefault(); if (!name) return;
@@ -516,5 +594,10 @@ function loadDemo() {
   });
 }
 
+// Partage vers l'app (Android) : ?url=… ou un lien dans ?text=…
+{
+  const sp = new URLSearchParams(location.search), shared = sp.get('url') || (sp.get('text') || '').match(/https?:\/\/\S+/)?.[0];
+  if (shared) { history.replaceState(null, '', location.pathname + '#catalogue'); setTimeout(() => doImport(shared), 300); }
+}
 parse(); render(); Y.init();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

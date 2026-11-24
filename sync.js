@@ -13,6 +13,7 @@ try { status.household = JSON.parse(localStorage.getItem(HH) || 'null'); } catch
 
 let sb = null, channel = null, flushTimer = null, listeners = new Set();
 export const onStatus = f => listeners.add(f);
+export const client = () => sb;
 const emit = () => listeners.forEach(f => f(status));
 const fail = (e) => { status.error = e?.message || String(e); emit(); };
 const saveHH = () => { try { localStorage.setItem(HH, JSON.stringify(status.household)); } catch {} };

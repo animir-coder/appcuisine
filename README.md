@@ -15,7 +15,14 @@ Réglages ⚙ > « Exemples » pour charger 4 recettes + un stock de démo.
 | Vérifier la liste | Candidats = ingrédients manquants + récurrents + stock « presque fini ». Décocher puis valider |
 | Courses | Triée par rayon, ajout manuel, ⟳ = récurrent. Cocher = ajouté au stock (décocher = annulé) |
 | Stock | Frigo/Placard/Congélo, niveau en 1 tap, péremption auto pour le frais, alerte « à consommer vite » |
-| Idées | Faisables / manque 1 / manque 2, bouton « ajouter les manquants » |
+| Cuisiner | Ce que je peux faire avec mon stock : faisables / manque 1 / manque 2, bouton « ajouter les manquants » |
+| Catalogue | 45 recettes pour 2, recherche par nom ou ingrédient, lien Marmiton, import par lien ou partage (Android) |
+
+## Portions
+Taille du foyer dans Réglages (2 par défaut, réglage propre à chaque téléphone). Chaque recette a un sélecteur – N + qui recalcule quantités affichées et liste de courses.
+
+## Import par lien
+Relais Supabase `supabase/functions/import-recipe` : lit les données schema.org/Recipe de la page. Nécessite d'être connecté.
 
 ## Hypothèses prises
 - Correspondance des ingrédients par nom (pluriels et accents ignorés). Pas de calcul de quantités : le stock est approximatif.
